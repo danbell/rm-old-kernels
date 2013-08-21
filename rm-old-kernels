@@ -1,0 +1,52 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+
+sub uniq {
+    my %seen = ();
+    return grep { ! $seen{$_} ++ } @_;
+}
+
+my $current_kernel_command = 'uname -r';
+my $list_command = 'dpkg -l | egrep \'^ii\\s+linux-(im|he)\' | awk \'{print $2}\'';
+
+my @installed_kernel_packages = split /\n/, qx/$list_command/;
+my $version_regex = qr/(\d+\.\d+\.\d+-\d+)/;
+
+# determine the kernel versions that are installed from the package list
+my @versions;
+foreach my $package (@installed_kernel_packages) {
+    push @versions, $package =~ /$version_regex/;
+}
+@versions = sort(uniq(@versions));
+
+# get the current running kernel version
+my ($current_version) = qx/$current_kernel_command/ =~ /$version_regex/;
+
+# spare the current and two most recent kernel versions
+print "Retaining current and recent kernel versions: ";
+print $current_version, ' ';
+@versions = grep { $_ ne $current_version } @versions;
+for (1..2) {
+    print pop @versions, ' ';
+}
+print "\n";
+
+# determine the packages to uninstall
+my @uninstall;
+foreach my $package (@installed_kernel_packages) {
+    my ($version) = $package =~ /$version_regex/;
+    if ($version ~~ @versions) {
+        push @uninstall, $package;
+    } 
+}
+
+if (@uninstall) {
+    print "Preparing to remove the following kernel versions:\n";
+    print join ' ', @uninstall;
+    print "\n";
+    system "sudo apt-get purge @uninstall";
+} else {
+    print "No kernel packages to remove.\n";
+}
